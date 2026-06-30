@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 
 SPEC_VERSION = "0.1.0"
@@ -167,6 +167,8 @@ class TimelineEvent:
     created_at: str
     node_id: str
     payload: dict[str, Any]
+    decision_id: str | None = None
+    run_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TimelineEvent:
@@ -177,6 +179,8 @@ class TimelineEvent:
             created_at=data["created_at"],
             node_id=data["node_id"],
             payload=dict(data.get("payload", {})),
+            decision_id=data.get("decision_id"),
+            run_id=data.get("run_id"),
         )
 
 
@@ -228,6 +232,70 @@ class SignalSpaceDocument:
         )
 
 
+@dataclass(frozen=True)
+class GraphSummary:
+    id: str
+    name: str | None
+    source: str | None
+    nodes: int
+    edges: int
+    timeline_events: int
+    decisions: int
+    authority: AuthorityLevel
+
+
+@dataclass(frozen=True)
+class InspectorSection:
+    id: str
+    title: str
+    fields: tuple[StateField, ...]
+
+
+@dataclass(frozen=True)
+class InspectorModel:
+    target: dict[str, str]
+    title: str
+    sections: tuple[InspectorSection, ...]
+
+
+@dataclass(frozen=True)
+class NodeView:
+    id: str
+    label: str
+    family: NodeFamily
+    mode: str | None
+    authority: AuthorityLevel
+    selected: bool
+
+
+@dataclass(frozen=True)
+class EdgeView:
+    id: str
+    from_node: str
+    to_node: str
+    label: str | None
+
+
+@dataclass(frozen=True)
+class TimelineView:
+    id: str
+    kind: str
+    state_class: StateClass
+    created_at: str
+    node_id: str
+    decision_id: str | None
+    run_id: str | None
+
+
+@dataclass(frozen=True)
+class GraphViewModel:
+    summary: GraphSummary
+    nodes: tuple[NodeView, ...]
+    edges: tuple[EdgeView, ...]
+    timeline: tuple[TimelineView, ...]
+    inspector: InspectorModel
+
+
 def load_document(path: str | Path) -> SignalSpaceDocument:
     with Path(path).open(encoding="utf-8") as handle:
         return validate_document(json.load(handle))
@@ -235,19 +303,24 @@ def load_document(path: str | Path) -> SignalSpaceDocument:
 
 def validate_document(data: dict[str, Any]) -> SignalSpaceDocument:
     document = SignalSpaceDocument.from_dict(data)
-    node_ids = {node.id for node in document.graph.nodes}
-    if len(node_ids) != len(document.graph.nodes):
+    validate_graph(document.graph)
+    return document
+
+
+def validate_graph(graph: SignalGraph) -> SignalGraph:
+    node_ids = {node.id for node in graph.nodes}
+    if len(node_ids) != len(graph.nodes):
         raise ValidationError("duplicate node id")
 
-    edge_ids = {edge.id for edge in document.graph.edges}
-    if len(edge_ids) != len(document.graph.edges):
+    edge_ids = {edge.id for edge in graph.edges}
+    if len(edge_ids) != len(graph.edges):
         raise ValidationError("duplicate edge id")
 
-    for edge in document.graph.edges:
+    for edge in graph.edges:
         if edge.from_node not in node_ids or edge.to_node not in node_ids:
             raise ValidationError(f"edge has unknown endpoint: {edge.id}")
 
-    for node in document.graph.nodes:
+    for node in graph.nodes:
         for field in node.state_fields:
             if field.derived and field.writable:
                 raise ValidationError(f"derived field cannot be writable: {field.id}")
@@ -260,4 +333,140 @@ def validate_document(data: dict[str, Any]) -> SignalSpaceDocument:
                 f"trainable lifecycle advertised without decision capability: {node.id}"
             )
 
-    return document
+    return graph
+
+
+def get_node(graph: SignalGraph, node_id: str) -> SignalNode | None:
+    return next((node for node in graph.nodes if node.id == node_id), None)
+
+
+def get_decision_nodes(graph: SignalGraph) -> tuple[SignalNode, ...]:
+    return tuple(node for node in graph.nodes if node.family == "decision")
+
+
+def get_timeline_by_class(
+    graph: SignalGraph,
+    state_class: StateClass,
+) -> tuple[TimelineEvent, ...]:
+    return tuple(event for event in graph.timeline if event.state_class == state_class)
+
+
+def get_allowed_intents(
+    graph: SignalGraph,
+    target: Mapping[str, str] | None = None,
+) -> tuple[str, ...]:
+    if target is None:
+        return graph.allowed_intents
+
+    if target.get("kind") == "node":
+        node = get_node(graph, target.get("id", ""))
+        return node.allowed_intents if node else ()
+
+    if target.get("kind") == "edge":
+        return ()
+
+    return graph.allowed_intents
+
+
+def summarize_graph(graph: SignalGraph) -> GraphSummary:
+    return GraphSummary(
+        id=graph.id,
+        name=graph.name,
+        source=graph.source,
+        nodes=len(graph.nodes),
+        edges=len(graph.edges),
+        timeline_events=len(graph.timeline),
+        decisions=len(get_decision_nodes(graph)),
+        authority=graph.authority.default,
+    )
+
+
+def create_inspector_model(
+    graph: SignalGraph,
+    target: Mapping[str, str],
+) -> InspectorModel:
+    target_copy = dict(target)
+    node = (
+        get_node(graph, target.get("id", ""))
+        if target.get("kind") == "node"
+        else None
+    )
+    if node is None:
+        return InspectorModel(
+            target=target_copy,
+            title=target.get("id", graph.id),
+            sections=(),
+        )
+
+    intent_fields = tuple(
+        StateField(
+            id=intent,
+            state_class="recommendation",
+            writable=False,
+            derived=True,
+            value=intent,
+        )
+        for intent in node.allowed_intents
+    )
+
+    return InspectorModel(
+        target=target_copy,
+        title=node.label or node.id,
+        sections=(
+            InspectorSection(id="state", title="State", fields=node.state_fields),
+            InspectorSection(id="intents", title="Intents", fields=intent_fields),
+        ),
+    )
+
+
+def create_graph_view_model(
+    graph: SignalGraph,
+    selected_node_id: str | None = None,
+) -> GraphViewModel:
+    validate_graph(graph)
+    selected = get_node(graph, selected_node_id) if selected_node_id else None
+    if selected is None:
+        selected = graph.nodes[0] if graph.nodes else None
+
+    selected_target = (
+        {"kind": "node", "id": selected.id}
+        if selected is not None
+        else {"kind": "graph", "id": graph.id}
+    )
+
+    return GraphViewModel(
+        summary=summarize_graph(graph),
+        nodes=tuple(
+            NodeView(
+                id=node.id,
+                label=node.label or node.id,
+                family=node.family,
+                mode=node.mode,
+                authority=node.authority.default,
+                selected=selected is not None and node.id == selected.id,
+            )
+            for node in graph.nodes
+        ),
+        edges=tuple(
+            EdgeView(
+                id=edge.id,
+                from_node=edge.from_node,
+                to_node=edge.to_node,
+                label=edge.label,
+            )
+            for edge in graph.edges
+        ),
+        timeline=tuple(
+            TimelineView(
+                id=event.id,
+                kind=event.kind,
+                state_class=event.state_class,
+                created_at=event.created_at,
+                node_id=event.node_id,
+                decision_id=event.decision_id,
+                run_id=event.run_id,
+            )
+            for event in graph.timeline
+        ),
+        inspector=create_inspector_model(graph, selected_target),
+    )
