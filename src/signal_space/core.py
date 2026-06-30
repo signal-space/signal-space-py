@@ -332,8 +332,26 @@ def validate_graph(graph: SignalGraph) -> SignalGraph:
             raise ValidationError(
                 f"trainable lifecycle advertised without decision capability: {node.id}"
             )
+        if node.decision:
+            for intent in node.decision.proposed_intents:
+                if intent.authority == "direct" and not _grants_direct_authority(
+                    node,
+                    intent,
+                ):
+                    raise ValidationError(
+                        "proposed intent upgrades to direct authority: "
+                        f"{intent.id}"
+                    )
 
     return graph
+
+
+def _grants_direct_authority(node: SignalNode, intent: SurfaceIntent) -> bool:
+    return (
+        node.authority.default == "direct"
+        or node.authority.by_intent.get(intent.type) == "direct"
+        or (node.decision is not None and node.decision.authority == "direct")
+    )
 
 
 def get_node(graph: SignalGraph, node_id: str) -> SignalNode | None:

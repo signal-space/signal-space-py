@@ -85,6 +85,18 @@ def test_reads_nodes_and_target_intents() -> None:
     )
 
 
+def test_rejects_silent_direct_authority_escalation() -> None:
+    data = json.loads((SPEC_FIXTURES / "agent_doc_supervisor.json").read_text())
+    data["graph"]["nodes"][2]["decision"]["proposed_intents"][0]["authority"] = "direct"
+
+    try:
+        validate_document(data)
+    except ValueError as error:
+        assert "direct authority" in str(error)
+    else:
+        raise AssertionError("expected validation failure")
+
+
 def test_rejects_unknown_edge_endpoint() -> None:
     data = json.loads((SPEC_FIXTURES / "agent_doc_supervisor.json").read_text())
     data["graph"]["edges"][0]["from"] = "missing"
