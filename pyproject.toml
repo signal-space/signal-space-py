@@ -1,0 +1,36 @@
+[project]
+name = "signal-space"
+version = "0.1.0"
+description = "Signal Space graph, timeline, inspector, and intent types for Python"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Brian Takita", email = "brian.takita@gmail.com" }
+]
+dependencies = [
+    "lazily>=0.11.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/signal-space/signal-space-py"
+Source = "https://github.com/signal-space/signal-space-py"
+Spec = "https://github.com/signal-space/signal-space-spec"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "ruff>=0.14.0"
+]
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.signal-space]
+spec-version = "0.1.0"
+spec-repository = "https://github.com/signal-space/signal-space-spec"
