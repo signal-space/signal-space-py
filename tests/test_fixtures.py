@@ -31,7 +31,9 @@ def test_patchboard_fixture_validates_decision_capability() -> None:
     decisions = [node for node in document.graph.nodes if node.decision is not None]
 
     assert len(decisions) == 2
-    assert any("trainable_model.lifecycle" in node.allowed_modules for node in decisions)
+    assert any(
+        "trainable_model.lifecycle" in node.allowed_modules for node in decisions
+    )
 
 
 def test_summarizes_decisions_and_recommendations() -> None:
@@ -105,5 +107,43 @@ def test_rejects_unknown_edge_endpoint() -> None:
         validate_document(data)
     except ValueError as error:
         assert "unknown endpoint" in str(error)
+    else:
+        raise AssertionError("expected validation failure")
+
+
+def test_rejects_trainable_lifecycle_without_matching_capability() -> None:
+    data = json.loads((SPEC_FIXTURES / "patchboard_attention_router.json").read_text())
+    node = next(
+        node
+        for node in data["graph"]["nodes"]
+        if "trainable_model.lifecycle" in node.get("allowed_modules", [])
+    )
+    node["decision"]["capabilities"] = [
+        capability
+        for capability in node["decision"]["capabilities"]
+        if capability != "trainable_model.lifecycle"
+    ]
+
+    try:
+        validate_document(data)
+    except ValueError as error:
+        assert "trainable lifecycle" in str(error)
+    else:
+        raise AssertionError("expected validation failure")
+
+
+def test_rejects_trainable_lifecycle_without_decision_envelope() -> None:
+    data = json.loads((SPEC_FIXTURES / "patchboard_attention_router.json").read_text())
+    node = next(
+        node
+        for node in data["graph"]["nodes"]
+        if "trainable_model.lifecycle" in node.get("allowed_modules", [])
+    )
+    del node["decision"]
+
+    try:
+        validate_document(data)
+    except ValueError as error:
+        assert "trainable lifecycle" in str(error)
     else:
         raise AssertionError("expected validation failure")

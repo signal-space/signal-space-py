@@ -324,14 +324,12 @@ def validate_graph(graph: SignalGraph) -> SignalGraph:
         for field in node.state_fields:
             if field.derived and field.writable:
                 raise ValidationError(f"derived field cannot be writable: {field.id}")
-        if (
-            "trainable_model.lifecycle" in node.allowed_modules
-            and node.decision
-            and "trainable_model.lifecycle" not in node.decision.capabilities
-        ):
-            raise ValidationError(
-                f"trainable lifecycle advertised without decision capability: {node.id}"
-            )
+        if "trainable_model.lifecycle" in node.allowed_modules:
+            capabilities = node.decision.capabilities if node.decision else ()
+            if "trainable_model.lifecycle" not in capabilities:
+                raise ValidationError(
+                    f"trainable lifecycle advertised without decision capability: {node.id}"
+                )
         if node.decision:
             for intent in node.decision.proposed_intents:
                 if intent.authority == "direct" and not _grants_direct_authority(
@@ -339,8 +337,7 @@ def validate_graph(graph: SignalGraph) -> SignalGraph:
                     intent,
                 ):
                     raise ValidationError(
-                        "proposed intent upgrades to direct authority: "
-                        f"{intent.id}"
+                        f"proposed intent upgrades to direct authority: {intent.id}"
                     )
 
     return graph
@@ -405,9 +402,7 @@ def create_inspector_model(
 ) -> InspectorModel:
     target_copy = dict(target)
     node = (
-        get_node(graph, target.get("id", ""))
-        if target.get("kind") == "node"
-        else None
+        get_node(graph, target.get("id", "")) if target.get("kind") == "node" else None
     )
     if node is None:
         return InspectorModel(
