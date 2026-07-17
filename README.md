@@ -2,7 +2,7 @@
 
 Python types and conformance helpers for Signal Space.
 
-Supported `signal-space-spec`: `0.1.0`
+Supported `signal-space-spec`: `0.4.0`
 
 The package is intended to layer on top of `lazily-py` for reactive runtime
 integration. The current implementation focuses on fixture parsing,
